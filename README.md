@@ -56,8 +56,8 @@ Optional (each one is detected; when absent the UI just shows it as stopped):
 ## Install and run
 
 ```bash
-git clone https://github.com/yukihamada/soluna-web.git soluna-web
-cd soluna-web
+git clone https://github.com/yukihamada/soluna-sonos.git soluna-sonos
+cd soluna-sonos
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
 
