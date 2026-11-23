@@ -95,6 +95,7 @@ them (`--host`, `--port`, `--sonos`).
 | `SOLUNA_YTDLP` | *(found on `PATH`)* | Path to `yt-dlp` |
 | `SOLUNA_FFMPEG_DIR` | *(dir of `ffmpeg` on `PATH`)* | Passed to `yt-dlp --ffmpeg-location` |
 | `SOLUNA_HUE_CONFIG` | `~/.config/soluna-web/hue.json` | Hue pairing file |
+| `SOLUNA_ART_MAX_BYTES` | `3145728` (3 MiB) | Largest artwork image the proxy will pass through |
 
 Optional helper daemons — leave empty unless you run them:
 
@@ -188,8 +189,11 @@ speaker is required.
 - Writes (`POST /api/action`) require `Content-Type: application/json` and a
   same-origin `Origin`/`Referer`, so a random web page cannot change your
   speaker through a plain HTML form.
-- The artwork proxy only follows redirects to allow-listed hosts and matches
-  real domain boundaries (`somafm.com`, `*.somafm.com` — never `evilsomafm.com`).
+- The artwork proxy matches real domain boundaries (`somafm.com`,
+  `*.somafm.com` — never `evilsomafm.com`) and does **not** follow redirects:
+  a 3xx from an allow-listed host is rejected, so it cannot be bounced to an
+  internal address. Images above `SOLUNA_ART_MAX_BYTES` (default 3 MiB) are
+  rejected rather than truncated.
 - The artwork proxy only fetches allow-listed hosts (SomaFM, YouTube image
   hosts, and the configured speaker/LAN address).
 - The Hue application key lives in a local file outside the repo.

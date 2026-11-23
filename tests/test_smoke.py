@@ -89,6 +89,21 @@ class DashboardTest(unittest.TestCase):
         self.assertEqual(data["max_vol"], 35)
         self.assertIn("groovesalad", data["radios"])
 
+    def test_head_index(self):
+        req = urllib.request.Request(f"http://127.0.0.1:{self.port}/", method="HEAD")
+        with urllib.request.urlopen(req, timeout=10) as r:
+            self.assertEqual(r.status, 200)
+            self.assertIn("text/html", r.headers.get("Content-Type", ""))
+            self.assertGreater(int(r.headers.get("Content-Length", 0)), 1000)
+
+    def test_offline_status_has_all_keys(self):
+        # the page reads mix/hue/yt unconditionally
+        with self._get("/api/status") as r:
+            data = json.load(r)
+        for key in ("online", "max_vol", "mix", "mix_running", "hue",
+                    "yt", "radios", "world_running", "dj_running"):
+            self.assertIn(key, data)
+
     def test_unknown_path_404(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             self._get("/does-not-exist")

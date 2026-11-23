@@ -103,6 +103,9 @@ RADIOS = {
 
 HUE = {"bridge": None, "username": None, "lights": []}
 
+# Cap on proxied artwork so one huge image cannot exhaust memory.
+ART_MAX_BYTES = int(_env("SOLUNA_ART_MAX_BYTES", str(3 * 1024 * 1024)))
+
 
 def _hue_load():
     try:
@@ -457,6 +460,26 @@ def daemon_running(label):
     return False
 
 
+def _offline_status(error):
+    """The full status shape for an unreachable speaker.
+
+    The page reads mix/hue/yt unconditionally, so these keys must be present
+    even when the speaker is down.
+    """
+    return {
+        "online": False, "error": error, "max_vol": MAX_VOL,
+        "source": None, "radio_key": None,
+        "world_hold": os.path.exists(HOLD),
+        "dj_running": daemon_running(DJ_LABEL),
+        "world_running": daemon_running(WORLD_LABEL),
+        "mix_running": daemon_running(MIX_LABEL),
+        "mix": _mix_status(),
+        "radios": {k: v[0] for k, v in RADIOS.items()},
+        "yt": yt_status(),
+        "hue": hue_status(),
+    }
+
+
 def status():
     """Snapshot of everything the page renders.
 
@@ -560,12 +583,7 @@ def status():
             d = dict(_LAST_GOOD["v"])
             d["stale"] = True
             return d
-        return {"online": False, "error": str(e), "max_vol": MAX_VOL,
-                "source": None, "radio_key": None, "world_hold": os.path.exists(HOLD),
-                "dj_running": daemon_running(DJ_LABEL),
-                "world_running": daemon_running(WORLD_LABEL),
-                "mix_running": daemon_running(MIX_LABEL), "mix": _mix_status(),
-                "radios": {k: v[0] for k, v in RADIOS.items()}}
+        return _offline_status(str(e))
 
 
 def set_uri(uri, title, cls="object.item.audioItem.audioBroadcast", art=""):
@@ -857,7 +875,14 @@ class Handler(BaseHTTPRequestHandler):
             # Do not follow redirects: an allow-listed host could otherwise
             # bounce us to an internal address (SSRF).
             with _NO_REDIRECT.open(req, timeout=5) as r:
-                data = r.read(3_000_000)
+                declared = r.headers.get("Content-Length")
+                if declared and declared.isdigit() and int(declared) > ART_MAX_BYTES:
+                    self.send_error(502, "artwork too large")
+                    return
+                data = r.read(ART_MAX_BYTES + 1)
+                if len(data) > ART_MAX_BYTES:
+                    self.send_error(502, "artwork too large")
+                    return
                 ctype = r.headers.get("Content-Type", "image/jpeg")
         except Exception:
             self.send_error(502)
@@ -897,6 +922,20 @@ class Handler(BaseHTTPRequestHandler):
         self.send_error(404)
 
     def do_HEAD(self):
+        if self.path == "/" or self.path.startswith("/?"):
+            body = PAGE.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            return
+        if self.path == "/api/status":
+            body = json.dumps({"online": False}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            return
         m = re.match(r"^/yt/([A-Za-z0-9_-]+)\.mp3$", self.path.split("?")[0])
         if m:
             f = _yt_file(m.group(1))
@@ -985,12 +1024,7 @@ def call_with_timeout(fn, timeout=4.0):
             d = dict(_LAST_GOOD["v"])
             d["stale"] = True
             return d
-        return {"online": False, "error": "timeout", "max_vol": MAX_VOL,
-                "source": None, "radio_key": None, "world_hold": os.path.exists(HOLD),
-                "dj_running": daemon_running(DJ_LABEL),
-                "world_running": daemon_running(WORLD_LABEL),
-                "mix_running": daemon_running(MIX_LABEL), "mix": _mix_status(),
-                "radios": {k: v[0] for k, v in RADIOS.items()}}
+        return _offline_status("timeout")
 
 
 PAGE = r"""<!doctype html>
