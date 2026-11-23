@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd template. Copy to ~/Library/LaunchAgents/, replace the placeholders,
+  and pick your own reverse-DNS label (the filename must match Label).
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>local.soluna-web</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>__PYTHON__</string>
+    <string>__SCRIPT__</string>
+    <string>--host</string>
+    <string>0.0.0.0</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>SOLUNA_SONOS</key>
+    <string>192.168.1.50</string>
+    <key>SOLUNA_WEB_PORT</key>
+    <string>8100</string>
+    <key>SOLUNA_MAX_VOL</key>
+    <string>40</string>
+    <key>SOLUNA_BRAND</key>
+    <string>SOLUNA</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/tmp/soluna-web.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/soluna-web.err</string>
+</dict>
+</plist>
