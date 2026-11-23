@@ -79,6 +79,8 @@ class DashboardTest(unittest.TestCase):
         self.assertIn("<title>TestBrand · Sonos</title>", body)
         self.assertNotIn("__BRAND__", body)
         self.assertIn("<html lang=\"en\"", body)
+        self.assertIn('data-max="35"', body)  # SOLUNA_MAX_VOL honoured in the UI
+        self.assertNotIn("__MAXVOL__", body)
 
     def test_status_is_json_and_survives_offline_speaker(self):
         with self._get("/api/status") as r:
@@ -98,6 +100,45 @@ class DashboardTest(unittest.TestCase):
             self._get("/api/art?u=http://evil.example.com/a.png")
         self.assertEqual(ctx.exception.code, 403)
         ctx.exception.close()
+
+    def test_art_proxy_rejects_lookalike_domain(self):
+        # evilsomafm.com must not pass the allow-list via a suffix match
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._get("/api/art?u=http://evilsomafm.com/a.png")
+        self.assertEqual(ctx.exception.code, 403)
+        ctx.exception.close()
+
+    def test_post_rejects_non_json_content_type(self):
+        # a cross-site HTML form can only send these types without preflight
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{self.port}/api/action",
+            data=b'{"cmd":"volume","value":100}',
+            headers={"Content-Type": "text/plain"}, method="POST")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(req, timeout=10)
+        self.assertEqual(ctx.exception.code, 403)
+        ctx.exception.close()
+
+    def test_post_rejects_cross_origin(self):
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{self.port}/api/action",
+            data=b'{"cmd":"volume","value":100}',
+            headers={"Content-Type": "application/json",
+                     "Origin": "http://evil.example.com"}, method="POST")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(req, timeout=10)
+        self.assertEqual(ctx.exception.code, 403)
+        ctx.exception.close()
+
+    def test_post_accepts_same_origin(self):
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{self.port}/api/action",
+            data=b'{"cmd":"bogus"}',
+            headers={"Content-Type": "application/json",
+                     "Origin": f"http://127.0.0.1:{self.port}"}, method="POST")
+        with urllib.request.urlopen(req, timeout=10) as r:
+            data = json.load(r)
+        self.assertIn("error", data)  # reaches the handler, not blocked by CSRF
 
     def test_unknown_action_is_reported(self):
         req = urllib.request.Request(

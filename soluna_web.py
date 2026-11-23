@@ -81,11 +81,15 @@ MIX_LABEL = _env("SOLUNA_MIX_LABEL", "")
 DJ_LABEL = _env("SOLUNA_DJ_LABEL", "")
 
 # Hold-file protocol shared with the WORLD daemon (all inside STATE_DIR).
-HOLD = str(STATE_DIR / "world-hold")
-PAUSE = str(STATE_DIR / "world-pause")
-NOW = str(STATE_DIR / "world-now")
-WORLD_CURRENT = str(STATE_DIR / "world-current.json")
-YT_CACHE = STATE_DIR / "yt"
+# The prefix lets an existing daemon keep its filenames, e.g.
+#   SOLUNA_STATE_DIR=/tmp SOLUNA_WORLD_PREFIX=soluna-world-
+# reproduces /tmp/soluna-world-hold, /tmp/soluna-world-pause, ...
+WORLD_PREFIX = _env("SOLUNA_WORLD_PREFIX", "world-")
+HOLD = str(STATE_DIR / f"{WORLD_PREFIX}hold")
+PAUSE = str(STATE_DIR / f"{WORLD_PREFIX}pause")
+NOW = str(STATE_DIR / f"{WORLD_PREFIX}now")
+WORLD_CURRENT = str(STATE_DIR / f"{WORLD_PREFIX}current.json")
+YT_CACHE = Path(_env("SOLUNA_YT_CACHE", str(STATE_DIR / "yt")))
 
 # Philips Hue pairing config: {"bridge": "ip", "username": "key", "lights": ["1"]}
 HUE_CFG_PATH = Path(_env("SOLUNA_HUE_CONFIG", str(Path.home() / ".config" / "soluna-web" / "hue.json"))).expanduser()
@@ -420,8 +424,12 @@ def didl(uri, title="stream", cls="object.item.audioItem.audioBroadcast", art=""
 
 
 def sonos():
-    """Return a SoCo handle for the configured speaker (or discover one)."""
-    socket.setdefaulttimeout(3)
+    """Return a SoCo handle for the configured speaker (or discover one).
+
+    The request timeout is set once on soco.config at import time; we do not
+    touch socket.setdefaulttimeout() here because that would change the
+    default for every socket in the process.
+    """
     if SONOS_IP:
         return SoCo(SONOS_IP)
     dev = soco.discovery.any_soco()
@@ -450,6 +458,11 @@ def daemon_running(label):
 
 
 def status():
+    """Snapshot of everything the page renders.
+
+    Never raises for an unreachable speaker: returns {"online": False, ...}
+    with the last-known values so the UI can keep showing state.
+    """
     try:
         s = sonos()
         info = s.get_speaker_info()
@@ -592,6 +605,11 @@ def yt_play(url):
 
 
 def action(cmd, data):
+    """Execute one UI command and return {"ok": True, ...} or {"error": ...}.
+
+    `cmd` is the command name, `data` the full request body (it carries the
+    command's arguments, e.g. {"cmd": "volume", "value": 30}).
+    """
     s = sonos()
     if cmd == "play":
         if os.path.exists(PAUSE):
@@ -734,6 +752,14 @@ def action(cmd, data):
     return {"ok": True}
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **kw):
+        return None  # surface the 3xx instead of following it
+
+
+_NO_REDIRECT = urllib.request.build_opener(_NoRedirect)
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -810,20 +836,27 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(400)
             return
         host = (p.hostname or "").lower()
+
+        def _host_in(domain):
+            # "somafm.com" matches somafm.com and a.somafm.com, never evilsomafm.com
+            return host == domain or host.endswith("." + domain)
+
         allowed = (
-            host.endswith("somafm.com")
-            or host.endswith("ytimg.com")
-            or host.endswith("ggpht.com")
-            or host.endswith("googleusercontent.com")
+            _host_in("somafm.com")
+            or _host_in("ytimg.com")
+            or _host_in("ggpht.com")
+            or _host_in("googleusercontent.com")
             or host == LAN_IP
-            or host == SONOS_IP
+            or (bool(SONOS_IP) and host == SONOS_IP)
         )
         if not allowed:
             self.send_error(403)
             return
         try:
             req = urllib.request.Request(u, headers={"User-Agent": "soluna-web/1.0"})
-            with urllib.request.urlopen(req, timeout=5) as r:
+            # Do not follow redirects: an allow-listed host could otherwise
+            # bounce us to an internal address (SSRF).
+            with _NO_REDIRECT.open(req, timeout=5) as r:
                 data = r.read(3_000_000)
                 ctype = r.headers.get("Content-Type", "image/jpeg")
         except Exception:
@@ -878,11 +911,41 @@ class Handler(BaseHTTPRequestHandler):
             return
         self.send_error(404)
 
+    def _origin_ok(self):
+        """Reject cross-site writes.
+
+        A LAN appliance with no auth is still reachable from any page the
+        browser loads, so a plain HTML form (no preflight) could otherwise
+        change the volume or source. Require same-origin, and require the
+        request to actually be JSON.
+        """
+        ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if ctype != "application/json":
+            return False
+        origin = self.headers.get("Origin")
+        if origin is None:
+            # Same-origin fetch() may omit Origin; fall back to Referer.
+            ref = self.headers.get("Referer")
+            if ref is None:
+                return True  # non-browser client (curl, tests)
+            origin = ref
+        try:
+            from urllib.parse import urlparse
+            o = urlparse(origin)
+        except Exception:
+            return False
+        if not o.netloc:
+            return False
+        return o.netloc.lower() == (self.headers.get("Host") or "").lower()
+
     def do_POST(self):
         if self.path != "/api/action":
             self.send_error(404)
             return
-        n = int(self.headers.get("Content-Length", 0))
+        if not self._origin_ok():
+            self._json({"error": "cross-origin request rejected"}, 403)
+            return
+        n = int(self.headers.get("Content-Length", 0) or 0)
         try:
             data = json.loads(self.rfile.read(n) or b"{}")
         except Exception:
@@ -904,6 +967,7 @@ _LAST_GOOD = {"v": None}
 
 
 def call_with_timeout(fn, timeout=4.0):
+    """Run fn in the shared pool, returning {"error": "timeout"} if it hangs."""
     fut = _POOL.submit(fn)
     try:
         res = fut.result(timeout=timeout)
@@ -1354,7 +1418,7 @@ html[data-size="lg"] .tab{font-size:12px}
     <button class="tbtn" onclick="act('mute')" id="mutbtn" aria-label="Mute" aria-pressed="false"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" id="muteicon"><path d="M4 9v6h4l5 5V4L8 9H4z"/><path d="M16 8a5 5 0 010 8M18.5 5.5a9 9 0 010 13" stroke="currentColor" stroke-width="2" fill="none"/></svg></button>
   </div>
 
-  <div class="console">
+  <div class="console" id="console">
     <div class="consolehead">
       <span class="cTitle">4-DECK MIXER</span>
       <button class="bankbtn" id="bankbtn" onclick="toggleBank()" title="Choose which decks the controller channels drive">BANK A/B</button>
@@ -1374,10 +1438,10 @@ html[data-size="lg"] .tab{font-size:12px}
 
   <div class="mixer">
     <div class="knobchan">
-      <div class="rknob" data-kind="volume" data-min="0" data-max="40" role="slider" aria-label="Volume" tabindex="0">
+      <div class="rknob" data-kind="volume" data-min="0" data-max="__MAXVOL__" role="slider" aria-label="Volume" tabindex="0">
         <div class="knob-dial"><span class="knob-ptr"></span></div>
         <div class="knob-cap"></div>
-        <input type="range" min="0" max="40" step="1" id="vol" oninput="setv('volume',this.value)" aria-hidden="true" tabindex="-1">
+        <input type="range" min="0" max="__MAXVOL__" step="1" id="vol" oninput="setv('volume',this.value)" aria-hidden="true" tabindex="-1">
       </div>
       <div class="klabel">VOL</div>
       <div class="cval" id="v-vol">—</div>
@@ -2043,7 +2107,7 @@ async function refresh(){
     const nowsrcEl=document.getElementById('nowsrc');
     const isPlaying=s.state==='PLAYING';
     const verb=isPlaying?'Playing':(s.state==='PAUSED_PLAYBACK'?'Paused':(s.state==='STOPPED'?'Stopped':'—'));
-    const nowsrcTxt=switching?'Switching…':verb+': '+srcLabel+(s.source==='radio'&&s.radio_key&&s.radios?'（'+s.radios[s.radio_key]+'）':'');
+    const nowsrcTxt=switching?'Switching…':verb+': '+srcLabel+(s.source==='radio'&&s.radio_key&&s.radios?' ('+s.radios[s.radio_key]+')':'');
     if(nowsrcEl.textContent!==nowsrcTxt)nowsrcEl.textContent=nowsrcTxt;
     const dur=toSecs(s.duration), pos=toSecs(s.position);
     const seekable=!!s.seekable && dur>0 && !switching;
@@ -2116,6 +2180,12 @@ async function refresh(){
     document.getElementById('foot').textContent='DJ bridge: '+(s.dj_running?'running':'stopped')+' · Auto-return: '+(s.world_running?(s.world_hold?'held':'on'):'stopped');
     renderMix(s.mix);
     renderHue(s.hue);
+    // Feature-detect optional integrations so a plain Sonos setup is not
+    // shown a console full of dead controls.
+    const consoleEl=document.getElementById('console');
+    if(consoleEl)consoleEl.style.display=s.mix_running?'':'none';
+    const wb=document.getElementById('b-world');
+    if(wb)wb.style.display=s.world_running?'':'none';
   }catch(e){
     pollFail++;
     document.getElementById('offline').className='offline show';
@@ -2222,8 +2292,13 @@ def main():
     args = ap.parse_args()
     SONOS_IP = args.sonos
     WEB_PORT = args.port
-    PAGE = PAGE.replace("__BRAND__", html.escape(BRAND))
-    srv = Server((args.host, args.port), Handler)
+    PAGE = (PAGE.replace("__BRAND__", html.escape(BRAND))
+                 .replace("__MAXVOL__", str(MAX_VOL)))
+    try:
+        srv = Server((args.host, args.port), Handler)
+    except OSError as e:
+        sys.exit(f"cannot bind {args.host}:{args.port} ({e.strerror or e}); "
+                 f"try --port <other>")
     shown = "127.0.0.1" if args.host in ("0.0.0.0", "::") else args.host
     print(f"dashboard: http://{shown}:{args.port}/  "
           f"(sonos: {SONOS_IP or 'auto-discover'})", flush=True)

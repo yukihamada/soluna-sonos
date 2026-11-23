@@ -4,6 +4,11 @@ A single-file browser dashboard for a **Sonos** speaker. Open one page on your
 phone or laptop and control playback, radio, line-in, volume, EQ, play mode,
 crossfade, and optional Philips Hue lights — without the Sonos app.
 
+**Core needs only a Sonos and `soco`.** The 4-deck mixer console and the WORLD
+source button are optional: they light up only when the matching local daemon
+is running, and are hidden otherwise. Those daemons are separate programs and
+are *not* included here — the dashboard just talks to their HTTP endpoints.
+
 Everything site-specific (speaker IP, ports, helper daemons, Hue pairing) is
 configuration, not code. With no configuration at all it discovers a Sonos on
 your network over SSDP and serves a working dashboard on `127.0.0.1:8100`.
@@ -34,10 +39,11 @@ Optional (each one is detected; when absent the UI just shows it as stopped):
 
 - **YouTube** — paste a URL, audio is extracted with `yt-dlp` + `ffmpeg` and
   served to the speaker from the dashboard. Supports HTTP Range requests.
-- **Mixer** — a separate local daemon exposing `/mix/*`; the dashboard can put
-  its stream on the speaker and show four decks with live waveforms.
-- **WORLD** — a separate local stream daemon; the dashboard shows whether it is
-  running and whether it is holding the speaker.
+- **Mixer** — a separate local daemon exposing `/mix/*`; when it answers, the
+  dashboard shows the 4-deck console, crossfader and live waveforms. Hidden
+  when the daemon is not running.
+- **WORLD** — a separate local stream daemon; when its launchd label is
+  configured and running, the WORLD source button appears.
 - **Hue** — brightness, color temperature and presets for the lights you list.
 
 ## Requirements
@@ -50,7 +56,7 @@ Optional (each one is detected; when absent the UI just shows it as stopped):
 ## Install and run
 
 ```bash
-git clone <this repo> soluna-web
+git clone https://github.com/yukihamada/soluna-web.git soluna-web
 cd soluna-web
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
@@ -83,6 +89,8 @@ them (`--host`, `--port`, `--sonos`).
 | `SOLUNA_MAX_VOL` | `40` | Hard volume ceiling |
 | `SOLUNA_BRAND` | `SOLUNA` | Name shown in the page title and labels |
 | `SOLUNA_STATE_DIR` | `$XDG_RUNTIME_DIR/soluna-web` or `$TMPDIR/soluna-web` | Hold files, YouTube cache |
+| `SOLUNA_WORLD_PREFIX` | `world-` | Filename prefix for the hold files (`<prefix>hold`, `<prefix>pause`, …) |
+| `SOLUNA_YT_CACHE` | `$SOLUNA_STATE_DIR/yt` | Where extracted YouTube audio is cached |
 | `SOLUNA_PUBLIC_HOST` | *(auto-detected LAN IP)* | Host the speaker should fetch streams from |
 | `SOLUNA_YTDLP` | *(found on `PATH`)* | Path to `yt-dlp` |
 | `SOLUNA_FFMPEG_DIR` | *(dir of `ffmpeg` on `PATH`)* | Passed to `yt-dlp --ffmpeg-location` |
@@ -123,10 +131,18 @@ small files in `SOLUNA_STATE_DIR`:
 
 | File | Meaning |
 | --- | --- |
-| `world-hold` | Dashboard has taken the speaker; the daemon must not reclaim it |
-| `world-pause` | Ask the daemon to pause |
-| `world-now` | Currently playing item, written by the daemon |
-| `world-current.json` | Structured now-playing state |
+| `<prefix>hold` | Dashboard has taken the speaker; the daemon must not reclaim it |
+| `<prefix>pause` | Ask the daemon to pause |
+| `<prefix>now` | Currently playing item, written by the daemon |
+| `<prefix>current.json` | Structured now-playing state |
+
+`<prefix>` is `SOLUNA_WORLD_PREFIX` (default `world-`). If your daemon already
+uses flat names, point both at the same place:
+
+```bash
+SOLUNA_STATE_DIR=/tmp SOLUNA_WORLD_PREFIX=soluna-world- SOLUNA_YT_CACHE=/tmp/soluna-yt \
+  python3 soluna_web.py
+```
 
 Any daemon that honours these files can be used; the dashboard only reads and
 writes them.
@@ -167,7 +183,13 @@ speaker is required.
 
 ## Security notes
 
-- No authentication and no TLS. Treat it as a LAN appliance.
+- No authentication and no TLS. Treat it as a LAN appliance, and only bind to
+  `0.0.0.0` on a network you trust.
+- Writes (`POST /api/action`) require `Content-Type: application/json` and a
+  same-origin `Origin`/`Referer`, so a random web page cannot change your
+  speaker through a plain HTML form.
+- The artwork proxy only follows redirects to allow-listed hosts and matches
+  real domain boundaries (`somafm.com`, `*.somafm.com` — never `evilsomafm.com`).
 - The artwork proxy only fetches allow-listed hosts (SomaFM, YouTube image
   hosts, and the configured speaker/LAN address).
 - The Hue application key lives in a local file outside the repo.
