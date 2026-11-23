@@ -351,7 +351,7 @@ def radio_now_cached(key):
             finally:
                 _RADIO_INFLIGHT.discard(key)
 
-        _POOL.submit(_bg)
+        _BG_POOL.submit(_bg)
     return (hit[0], hit[1]) if hit else ("", "")
 
 
@@ -962,7 +962,10 @@ class Server(ThreadingMixIn, HTTPServer):
     allow_reuse_address = True
 
 
-_POOL = ThreadPoolExecutor(max_workers=8)
+# Two pools: status/action calls must never be starved by background radio
+# lookups, which can take seconds against the SomaFM API.
+_POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="soluna-cmd")
+_BG_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="soluna-bg")
 _LAST_GOOD = {"v": None}
 
 
@@ -2087,6 +2090,12 @@ async function refresh(){
     document.getElementById('offline').className=s.online?'offline':'offline show';
     document.body.classList.toggle('offline-on',!s.online);
     document.getElementById('dot').className='dot '+(s.online?'ok':'bad');
+    // Feature-detect optional integrations so a plain Sonos setup is not shown
+    // a console full of dead controls. Runs before the offline early-return.
+    const consoleEl=document.getElementById('console');
+    if(consoleEl)consoleEl.style.display=s.mix_running?'':'none';
+    const worldBtn=document.getElementById('b-world');
+    if(worldBtn)worldBtn.style.display=s.world_running?'':'none';
     const ctrls=['vol','bass','treble','loudbtn','playbtn','mutbtn','mute2','prevbtn','nextbtn','b-world','b-linein','r-groovesalad','r-dronezone','r-secretagent','r-lush','shufbtn','repbtn','xfbtn'];
     if(!s.online){
       document.getElementById('name').textContent='Sonos';
@@ -2180,12 +2189,6 @@ async function refresh(){
     document.getElementById('foot').textContent='DJ bridge: '+(s.dj_running?'running':'stopped')+' · Auto-return: '+(s.world_running?(s.world_hold?'held':'on'):'stopped');
     renderMix(s.mix);
     renderHue(s.hue);
-    // Feature-detect optional integrations so a plain Sonos setup is not
-    // shown a console full of dead controls.
-    const consoleEl=document.getElementById('console');
-    if(consoleEl)consoleEl.style.display=s.mix_running?'':'none';
-    const wb=document.getElementById('b-world');
-    if(wb)wb.style.display=s.world_running?'':'none';
   }catch(e){
     pollFail++;
     document.getElementById('offline').className='offline show';

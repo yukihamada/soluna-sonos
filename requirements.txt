@@ -1,1 +1,3 @@
-soco>=0.30
+# Runtime dependency. soco 0.30 is the oldest release with the discovery and
+# zone-group APIs used here; 0.32 is what this was tested against.
+soco>=0.30,<0.33
