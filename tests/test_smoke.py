@@ -248,6 +248,26 @@ class DashboardTest(unittest.TestCase):
         self.assertIn("pollFail=s.online?0:pollFail+1", body)
         self.assertIn("Math.pow(1.5,pollFail)", body)
 
+    def test_post_without_origin_is_allowed_but_referer_is_checked(self):
+        # curl and the tests send no Origin/Referer; a browser always sends one
+        # on a cross-origin POST. So: no headers -> allowed, foreign -> 403.
+        def post(headers):
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{self.port}/api/action",
+                data=b'{"cmd":"toggle"}', method="POST",
+                headers={"Content-Type": "application/json", **headers})
+            try:
+                with urllib.request.urlopen(req, timeout=10) as r:
+                    return r.status
+            except urllib.error.HTTPError as e:
+                return e.code
+
+        # The speaker is unreachable in this suite, so an accepted request
+        # fails later with 500. What matters here is the origin gate: not 403.
+        self.assertNotEqual(post({}), 403, "no Origin/Referer must be allowed")
+        self.assertEqual(post({"Referer": "http://evil.example/x"}), 403,
+                         "a foreign Referer must be rejected")
+
     def test_unknown_action_is_reported(self):
         req = urllib.request.Request(
             f"http://127.0.0.1:{self.port}/api/action",

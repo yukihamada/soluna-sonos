@@ -228,17 +228,20 @@ The page talks to a small JSON API, usable on its own.
 | `GET /api/wave?deck=A&n=240` | Waveform peaks, when the mixer daemon runs |
 | `GET /yt/<id>.mp3` | Cached YouTube audio, with Range support |
 
-`POST /api/action` requires `Content-Type: application/json` and a same-origin
-`Origin`/`Referer`. It returns `{"ok": true}` or `{"error": "..."}`.
+`POST /api/action` requires `Content-Type: application/json`; if an `Origin` or
+`Referer` is present it must be same-origin. It returns `{"ok": true}` or
+`{"error": "..."}`.
 
 ```bash
 curl -s http://127.0.0.1:8100/api/status | python3 -m json.tool
 
 curl -s -X POST http://127.0.0.1:8100/api/action \
   -H 'Content-Type: application/json' \
-  -H 'Origin: http://127.0.0.1:8100' \
   -d '{"cmd":"volume","value":25}'
 ```
+
+`Origin` is optional here; if you do send one it must match the dashboard's own
+address.
 
 Commands, by group:
 
@@ -289,9 +292,12 @@ Stated plainly so you don't clone it expecting otherwise:
 
 - No authentication and no TLS. Treat it as a LAN appliance, and only bind to
   `0.0.0.0` on a network you trust.
-- Writes (`POST /api/action`) require `Content-Type: application/json` and a
-  same-origin `Origin`/`Referer`, so a random web page cannot change your
-  speaker through a plain HTML form.
+- Writes (`POST /api/action`) require `Content-Type: application/json`, and a
+  request that carries an `Origin` or `Referer` must be same-origin. A browser
+  always sends `Origin` on a cross-origin POST, so a random web page cannot
+  change your speaker through a plain HTML form. Requests with neither header
+  are accepted — that is how `curl` and the tests reach it — so this stops
+  drive-by browser pages, not a script that can already reach the port.
 - The artwork proxy matches real domain boundaries (`somafm.com`,
   `*.somafm.com` — never `evilsomafm.com`) and does **not** follow redirects:
   a 3xx from an allow-listed host is rejected, so it cannot be bounced to an
@@ -309,13 +315,14 @@ Stated plainly so you don't clone it expecting otherwise:
 python3 -m unittest discover -s tests -v
 ```
 
-Sixteen smoke tests start the server on a free port with the speaker pointed at
+Seventeen smoke tests start the server on a free port with the speaker pointed at
 `127.0.0.1` (nothing listening), so no real speaker is needed. They cover the
 unreachable-speaker path and the full offline status shape (including that the
 optional `mix`/`hue`/`yt` keys are still present), brand templating, `HEAD` on
 `/` and `/api/status` (including that the advertised length matches `GET`), the
 artwork allow-list and its lookalike-domain rejection, the `POST /api/action`
-guards (non-JSON, cross-origin, same-origin, unknown command), that the page
+guards (non-JSON, cross-origin, same-origin, foreign `Referer`, no-`Origin`
+allowed, unknown command), that the page
 loads no third-party resources, that the polling backoff counts a speaker
 outage, and that a mixer daemon answering over HTTP alone is enough to show the
 console.
