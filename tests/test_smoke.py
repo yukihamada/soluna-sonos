@@ -96,6 +96,13 @@ class DashboardTest(unittest.TestCase):
             self.assertIn("text/html", r.headers.get("Content-Type", ""))
             self.assertGreater(int(r.headers.get("Content-Length", 0)), 1000)
 
+    def test_head_status_matches_get_length(self):
+        with self._get("/api/status") as r:
+            get_body = r.read()
+        req = urllib.request.Request(f"http://127.0.0.1:{self.port}/api/status", method="HEAD")
+        with urllib.request.urlopen(req, timeout=10) as r:
+            self.assertEqual(int(r.headers["Content-Length"]), len(get_body))
+
     def test_offline_status_has_all_keys(self):
         # the page reads mix/hue/yt unconditionally
         with self._get("/api/status") as r:

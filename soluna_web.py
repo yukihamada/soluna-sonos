@@ -930,7 +930,8 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return
         if self.path == "/api/status":
-            body = json.dumps({"online": False}).encode()
+            # Same body as GET so Content-Length matches the real response.
+            body = json.dumps(call_with_timeout(status, 4.0)).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
