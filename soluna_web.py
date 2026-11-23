@@ -279,6 +279,17 @@ def _mix_status():
         return None
 
 
+def mixer_running(mix):
+    """True if the mixer daemon is usable, given an already-fetched status.
+
+    Two independent signals, because neither works everywhere: the HTTP
+    endpoint answers on any OS, while the launchd label only exists on macOS.
+    Either one is enough to show the console. `mix` is passed in so the status
+    poll does not hit the daemon twice per tick.
+    """
+    return mix is not None or daemon_running(MIX_LABEL)
+
+
 def deck_load(data):
     """Load a source into a mixer deck (youtube/radio/file)."""
     deck = (data.get("deck") or "").upper()
@@ -460,6 +471,12 @@ def daemon_running(label):
     return False
 
 
+def _mix_keys():
+    """mix/mix_running from a single daemon probe."""
+    mix = _mix_status()
+    return {"mix": mix, "mix_running": mixer_running(mix)}
+
+
 def _offline_status(error):
     """The full status shape for an unreachable speaker.
 
@@ -472,8 +489,7 @@ def _offline_status(error):
         "world_hold": os.path.exists(HOLD),
         "dj_running": daemon_running(DJ_LABEL),
         "world_running": daemon_running(WORLD_LABEL),
-        "mix_running": daemon_running(MIX_LABEL),
-        "mix": _mix_status(),
+        **_mix_keys(),
         "radios": {k: v[0] for k, v in RADIOS.items()},
         "yt": yt_status(),
         "hue": hue_status(),
@@ -570,8 +586,7 @@ def status():
             "max_vol": MAX_VOL,
             "dj_running": daemon_running(DJ_LABEL),
             "world_running": daemon_running(WORLD_LABEL),
-            "mix_running": daemon_running(MIX_LABEL),
-            "mix": _mix_status(),
+            **_mix_keys(),
             "radios": {k: v[0] for k, v in RADIOS.items()},
             "yt": yt_status(),
             "hue": hue_status(),
@@ -1418,7 +1433,7 @@ html[data-size="lg"] .tab{font-size:12px}
 </style>
 </head>
 <body>
-<div class="offline" id="offline">Can't reach the Sonos — retrying…</div>
+<div class="offline" id="offline"><span id="offlinemsg">Can't reach the Sonos — retrying…</span></div>
 <div class="app">
   <div class="top">
     <div class="brand"><span class="dot" id="dot"></span><span class="brandtxt"><span id="name">Sonos</span><small>__BRAND__ DJ</small></span></div>
@@ -2121,7 +2136,7 @@ function renderHue(h){
 async function refresh(){
   try{
     const r=await fetch('/api/status');const s=await r.json();st=s;
-    pollFail=0;
+    pollFail=s.online?0:pollFail+1;
     document.getElementById('offline').className=s.online?'offline':'offline show';
     document.body.classList.toggle('offline-on',!s.online);
     document.getElementById('dot').className='dot '+(s.online?'ok':'bad');
@@ -2133,6 +2148,12 @@ async function refresh(){
     if(worldBtn)worldBtn.style.display=s.world_running?'':'none';
     const ctrls=['vol','bass','treble','loudbtn','playbtn','mutbtn','mute2','prevbtn','nextbtn','b-world','b-linein','r-groovesalad','r-dronezone','r-secretagent','r-lush','shufbtn','repbtn','xfbtn'];
     if(!s.online){
+      // Say *why*: a wrong IP, a missing speaker and a blocked port all look
+      // identical otherwise, and the banner is the only place the user looks.
+      const om=document.getElementById('offlinemsg');
+      const why=(s.error||'').replace(/^HTTPS?ConnectionPool\(host='([^']+)'.*$/,'no answer from $1')
+                                 .replace(/^timeout$/,'the speaker timed out');
+      if(om)om.textContent="Can't reach the Sonos"+(why?' — '+why:'')+' · retrying…';
       document.getElementById('name').textContent='Sonos';
       document.getElementById('nowsrc').textContent='';
       for(const id of ctrls)document.getElementById(id).disabled=true;
@@ -2337,7 +2358,12 @@ def main():
     except OSError as e:
         sys.exit(f"cannot bind {args.host}:{args.port} ({e.strerror or e}); "
                  f"try --port <other>")
-    shown = "127.0.0.1" if args.host in ("0.0.0.0", "::") else args.host
+    # When bound to every interface, 127.0.0.1 is useless to a phone on the
+    # LAN; print the address the other devices actually need.
+    if args.host in ("0.0.0.0", "::"):
+        shown = LAN_IP
+    else:
+        shown = args.host
     print(f"dashboard: http://{shown}:{args.port}/  "
           f"(sonos: {SONOS_IP or 'auto-discover'})", flush=True)
     try:

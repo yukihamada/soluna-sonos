@@ -162,6 +162,92 @@ class DashboardTest(unittest.TestCase):
             data = json.load(r)
         self.assertIn("error", data)  # reaches the handler, not blocked by CSRF
 
+    # --- regressions found in review round 2 -----------------------------
+
+    def test_offline_status_keeps_optional_keys(self):
+        # The page reads mix/hue/yt/radios unconditionally; a missing key threw
+        # a TypeError in the browser and blanked the page.
+        with self._get("/api/status") as r:
+            d = json.loads(r.read())
+        self.assertFalse(d["online"])
+        for k in ("mix", "mix_running", "radios", "yt", "hue",
+                  "world_running", "dj_running", "max_vol"):
+            self.assertIn(k, d, f"offline status missing {k}")
+
+    def test_mix_running_true_when_daemon_answers(self):
+        # Detection used to be launchd-only, so the mixer console could never
+        # appear on Linux even with the daemon running. It must also accept an
+        # HTTP answer on SOLUNA_MIX_PORT.
+        import http.server, threading
+        class H(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+            def do_GET(self):
+                body = b'{"decks":{}}'
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+        srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        mix_port = srv.server_address[1]
+        env = dict(os.environ)
+        env.update({
+            "SOLUNA_STATE_DIR": tempfile.mkdtemp(prefix="soluna-mix-"),
+            "SOLUNA_SONOS": "127.0.0.1",
+            "SOLUNA_MIX_PORT": str(mix_port),
+            "SOLUNA_MIX_LABEL": "",
+            "SOLUNA_WORLD_LABEL": "",
+            "SOLUNA_DJ_LABEL": "",
+        })
+        port = _free_port()
+        proc = subprocess.Popen(
+            [sys.executable, str(SCRIPT), "--port", str(port)],
+            env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        try:
+            deadline = time.time() + 15
+            while time.time() < deadline:
+                try:
+                    with urllib.request.urlopen(
+                            f"http://127.0.0.1:{port}/api/status", timeout=2) as r:
+                        d = json.loads(r.read())
+                    break
+                except Exception:
+                    if proc.poll() is not None:
+                        raise RuntimeError(proc.stdout.read())
+                    time.sleep(0.2)
+            else:
+                self.fail("server did not start")
+            self.assertTrue(d["mix_running"],
+                            "mixer daemon answering over HTTP must count as running")
+            self.assertEqual(d["mix"], {"decks": {}})
+        finally:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+            if proc.stdout:
+                proc.stdout.close()
+            srv.shutdown()
+            srv.server_close()
+
+    def test_page_has_no_external_resources(self):
+        with self._get("/") as r:
+            body = r.read().decode()
+        import re
+        self.assertEqual(re.findall(r'(?:src|href)="https?://', body), [],
+                         "page must not load third-party scripts, fonts or images")
+
+    def test_backoff_counts_speaker_outage(self):
+        # A speaker outage returns 200 with online:false, so the old code reset
+        # pollFail every tick and hammered the dead speaker every 2s.
+        with self._get("/") as r:
+            body = r.read().decode()
+        self.assertIn("pollFail=s.online?0:pollFail+1", body)
+        self.assertIn("Math.pow(1.5,pollFail)", body)
+
     def test_unknown_action_is_reported(self):
         req = urllib.request.Request(
             f"http://127.0.0.1:{self.port}/api/action",
