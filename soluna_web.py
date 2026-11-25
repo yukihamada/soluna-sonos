@@ -1671,6 +1671,18 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
 .dcHint{display:none;font-size:12px;line-height:17px;height:auto;color:#f0b45a;text-align:center;padding:0 2px;word-break:keep-all;overflow-wrap:anywhere}
 
 .dcTitle{font-size:13px;line-height:20px;height:20px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg);text-align:center}
+/* A deck without a time readout is the one thing that made this read as a
+   mock-up rather than a controller. Tabular figures keep it from jittering. */
+.dcTime{display:flex;align-items:baseline;justify-content:center;gap:4px;height:16px;
+  font-size:11px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:.3px;
+  color:#8b93a3;line-height:16px}
+.dcTime .dcElapsed{color:#cfd6e4}
+.dcTime .dcTotal{color:#6d7583}
+.dcTime .dcTimeSep{color:#4a515d;font-weight:700}
+.dcTime.live .dcElapsed{color:#f0a92a}
+.dcTime.live .dcTotal{display:none}
+.dcTime.live .dcTimeSep{display:none}
+.dcTime.live::after{content:'LIVE';color:#f0a92a;font-size:9px;font-weight:900;letter-spacing:1.4px}
 .dcSrc{display:grid;grid-template-columns:1fr 1fr;gap:5px}
 .dcSrc button{min-height:44px;background:var(--card);border:1px solid var(--line);border-radius:10px;color:var(--fg);font-size:11px;font-weight:700;cursor:pointer;transition:.12s}
 .dcSrc button:active{background:linear-gradient(160deg,var(--acc),var(--acc2));border:none;color:#fff}
@@ -1921,6 +1933,26 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
   mask:repeating-linear-gradient(180deg,#000 0 4px,transparent 4px 6px);
   transition:height .12s linear}
 .masterSec{position:relative;border:1px solid #23272e;border-radius:12px;padding:14px 4px 4px;background:#0b0d10}
+/* The hardware puts the master meter beside the MASTER OUT knobs, but this
+   column is only wide enough for the three knobs. A horizontal LED bar under
+   them keeps the readout without shrinking the knobs or overlapping them. */
+.mstMeter{display:flex;flex-direction:column;gap:3px;padding:2px 6px 5px;pointer-events:none}
+.mstBar{position:relative;height:8px;border-radius:3px;overflow:hidden;
+  background:repeating-linear-gradient(90deg,#1b2028 0 5px,#0a0d11 5px 7px);
+  box-shadow:inset 0 1px 3px rgba(0,0,0,.9)}
+.mstBar::before{content:'';position:absolute;inset:0;border-radius:3px;opacity:.22;
+  background:linear-gradient(90deg,#3ddc84 0%,#3ddc84 46%,#ffc233 62%,#ffc233 82%,#ff4d4d 100%);
+  -webkit-mask:repeating-linear-gradient(90deg,#000 0 5px,transparent 5px 7px);
+  mask:repeating-linear-gradient(90deg,#000 0 5px,transparent 5px 7px)}
+.mstBar i{position:absolute;left:0;top:0;bottom:0;width:0%;border-radius:2px;
+  background:linear-gradient(90deg,#3ddc84 0%,#3ddc84 46%,#ffc233 62%,#ffc233 82%,#ff4d4d 100%);
+  background-size:var(--mstw,300px) 100%;background-position:left;background-repeat:no-repeat;
+  -webkit-mask:repeating-linear-gradient(90deg,#000 0 5px,transparent 5px 7px);
+  mask:repeating-linear-gradient(90deg,#000 0 5px,transparent 5px 7px);
+  transition:width .12s linear}
+.mstScale{display:flex;justify-content:space-between;font-size:9px;font-weight:800;
+  letter-spacing:.2px;color:#6d7583;line-height:1}
+.mstMeter.off{opacity:.4}
 .secLabel{position:absolute;top:-7px;left:10px;padding:0 6px;background:#0d0f12;
   font-size:9px;font-weight:900;letter-spacing:1.8px;color:#7f8798;
   /* Silkscreen sits *on* the panel: a 1px dark drop plus a hairline top
@@ -2688,6 +2720,10 @@ html[data-size="lg"] .tab{font-size:12px}
       <div class="cval" id="v-treble">—</div>
     </div>
     </div>
+    <div class="mstMeter" id="mstMeter" aria-hidden="true" title="MASTER OUT の実測レベル">
+      <div class="mstBar"><i id="mstm"></i></div>
+      <div class="mstScale" aria-hidden="true"><span>-24</span><span>-12</span><span>-6</span><span>0</span></div>
+    </div>
     </div>
     <div class="chstrips">
       <div class="chstrip">
@@ -3221,6 +3257,7 @@ function buildDecks(){
 
       `<div class="dcHint" id="d${d}hint"></div>`+
       `<div class="dcTitle" id="d${d}title">曲なし</div>`+
+      `<div class="dcTime" id="d${d}time" aria-label="DECK ${d} の経過時間"><span class="dcElapsed" id="d${d}elapsed">0:00</span><span class="dcTimeSep">/</span><span class="dcTotal" id="d${d}total">--:--</span></div>`+
       `<div class="dcPadModes" role="group" aria-label="DECK ${d} のパッドモード">`+
         `<button class="pmode on" aria-pressed="true">HOT CUE</button>`+
         `<button class="pmode disabled" aria-pressed="false" aria-disabled="true" title="未対応です">PAD FX</button>`+
@@ -3402,6 +3439,16 @@ function renderMix(m){
     const posTxt=deck.playing?(isLive?'':' '+fmtCue(deck.pos||0)):'';
     const kindTxt=isLive?'ライブ音源':'';
     stEl.textContent=onAir?('ON AIR'+posTxt):(deck.playing?(kindTxt||('再生中'+posTxt)):(deck.src?'停止中':'空き'));
+    const timeEl=document.getElementById('d'+d+'time');
+    if(timeEl){
+      const live=!(deck.duration>0);
+      timeEl.classList.toggle('live',live&&!!deck.playing);
+      if(!live){
+        const elEl=document.getElementById('d'+d+'elapsed'), totEl=document.getElementById('d'+d+'total');
+        if(elEl)elEl.textContent=fmtCue(deck.pos||0);
+        if(totEl)totEl.textContent=fmtCue(deck.duration||0);
+      }
+    }
     const tEl2=document.getElementById('d'+d+'tempo'), tvEl=document.getElementById('d'+d+'tempov');
     if(tEl2&&document.activeElement!==tEl2&&typeof deck.tempo==='number'){
       const pct=Math.max(-16,Math.min(16,Math.log2(deck.tempo)/0.5*16));
@@ -3501,6 +3548,24 @@ function fmtCue(sec){
   sec=Math.max(0,Math.round(sec));
   const m=Math.floor(sec/60),s=sec%60;
   return m+':'+String(s).padStart(2,'0');
+}
+// The master meter reads the same measured level the Hue sync uses. It is one
+// number, so it drives one bar: drawing two would imply a stereo split the
+// speaker does not report.
+let mstPeak=0;
+async function paintMasterMeter(){
+  const el=document.getElementById('mstm');
+  if(!el)return;
+  try{
+    const r=await fetch('/api/level');const lv=await r.json();
+    const l=Math.max(0,Math.min(1,typeof lv.level==='number'?lv.level:0));
+    const pct=Math.round(l*100);
+    mstPeak=Math.max(pct,Math.round(mstPeak*0.86));
+    el.style.width=pct+'%';
+    if(el.parentElement)el.parentElement.style.setProperty('--mstw',el.parentElement.offsetWidth+'px');
+    const wrap=document.getElementById('mstMeter');
+    if(wrap)wrap.classList.toggle('off',pct===0);
+  }catch(e){}
 }
 function renderPads(d,cues,live){
   const wrap=document.getElementById('pads'+d);
@@ -3695,6 +3760,7 @@ function renderLooper(){
       el.classList.toggle('on',!!l.recorded&&(l.seconds||0)>=(marks[i]||999));
     });
   }
+  paintMasterMeter();
   const set=(id,on)=>{const e=document.getElementById(id);if(e)e.setAttribute('aria-pressed',on?'true':'false');};
   set('loopRec',!!l.recording);
   set('loopPlay',!!l.playing);
