@@ -78,7 +78,7 @@ class DashboardTest(unittest.TestCase):
             body = r.read().decode()
         self.assertIn("<title>TestBrand · Sonos</title>", body)
         self.assertNotIn("__BRAND__", body)
-        self.assertIn("<html lang=\"en\"", body)
+        self.assertIn("<html lang=\"ja\"", body)  # UI is Japanese
         self.assertIn('data-max="35"', body)  # SOLUNA_MAX_VOL honoured in the UI
         self.assertNotIn("__MAXVOL__", body)
 
@@ -101,7 +101,11 @@ class DashboardTest(unittest.TestCase):
             get_body = r.read()
         req = urllib.request.Request(f"http://127.0.0.1:{self.port}/api/status", method="HEAD")
         with urllib.request.urlopen(req, timeout=10) as r:
-            self.assertEqual(int(r.headers["Content-Length"]), len(get_body))
+            head_len = int(r.headers["Content-Length"])
+        # The body carries live playback positions, so a digit can tick over
+        # between the two requests. Compare shape, not an exact byte count.
+        self.assertLessEqual(abs(head_len - len(get_body)), 8,
+                             f"HEAD {head_len} vs GET {len(get_body)}")
 
     def test_offline_status_has_all_keys(self):
         # the page reads mix/hue/yt unconditionally
@@ -240,6 +244,103 @@ class DashboardTest(unittest.TestCase):
         self.assertEqual(re.findall(r'(?:src|href)="https?://', body), [],
                          "page must not load third-party scripts, fonts or images")
 
+    def test_qr_endpoint_serves_a_scannable_svg(self):
+        # The QR is how a phone joins; it must be same-origin and carry the
+        # LAN URL, not localhost, or scanning it lands on the phone itself.
+        with self._get("/api/phone") as r:
+            info = json.loads(r.read().decode())
+        self.assertTrue(info["url"].startswith("http://"))
+        self.assertNotIn("127.0.0.1", info["url"])
+        self.assertEqual(info["url"], f"http://{info['lan_ip']}:{info['port']}/")
+        try:
+            with self._get("/qr.svg") as r:
+                svg = r.read().decode()
+                ctype = r.headers.get("Content-Type", "")
+        except urllib.error.HTTPError as e:
+            if e.code == 503:
+                self.skipTest("qrencode not installed")
+            raise
+        self.assertIn("svg", ctype)
+        self.assertIn("<svg", svg)
+        self.assertIn('viewBox="0 0 29 29"', svg)
+
+    def test_qr_panel_is_same_origin_and_hidden_by_default(self):
+        with self._get("/") as r:
+            body = r.read().decode()
+        self.assertIn('id="qrpanel"', body)
+        self.assertIn('id="qrbtn"', body)
+        self.assertIn("src='/qr.svg", body.replace('"', "'"))
+        self.assertNotIn('src="https://', body)
+
+    def test_stopall_pauses_decks_before_speaker(self):
+        # Pausing only the speaker let it reconnect and resume, because the
+        # mix kept producing audio. stopall must silence the decks too.
+        with self._get("/") as r:
+            body = r.read().decode()
+        self.assertIn("function stopAll(", body)
+        self.assertIn("cmd:'stopall'", body)
+        import soluna_web as W
+        calls = []
+        orig = W._mix_post
+        W._mix_post = lambda path, payload, timeout=4.0: (calls.append((path, payload)), {"ok": True})[1]
+        try:
+            out = W._mix_pause_all()
+        finally:
+            W._mix_post = orig
+        self.assertEqual([c[1]["deck"] for c in calls], ["A", "B", "C", "D"])
+        self.assertTrue(all(c[1]["action"] == "pause" for c in calls))
+        self.assertEqual(set(out), {"A", "B", "C", "D"})
+
+    def test_toggle_treats_transitioning_as_playing(self):
+        # TRANSITIONING used to fall into the "not playing" branch, so the
+        # pause button started playback instead of stopping it.
+        with self._get("/") as r:
+            pass
+        import inspect
+        import soluna_web as W
+        src = inspect.getsource(W.action)
+        self.assertIn('"TRANSITIONING"', src)
+        self.assertIn('"BUFFERING"', src)
+
+    def test_knob_hue_mapping_is_wired(self):
+        # The DJ knobs drive the lamps: VOL->brightness, BASS->colour
+        # temperature, TREBLE->saturation. Losing any of these silently is
+        # what makes "the knob does nothing" come back.
+        with self._get("/") as r:
+            body = r.read().decode()
+        self.assertIn("function toggleKnobHue(", body)
+        self.assertIn("function knobHueApply(", body)
+        self.assertIn("if(knobHueOn&&['volume','bass','treble'].includes(kind))knobHueApply();", body)
+        self.assertIn("const bri=Math.round(1+ (vol/maxVol)*253);", body)
+        self.assertIn("const ct=Math.round(500 - ((bass+10)/20)*(500-153));", body)
+        self.assertIn("const sat=Math.round(((tr+10)/20)*254);", body)
+        self.assertIn('id="knobhue"', body)
+
+    def test_knob_hue_does_not_jump_on_enable(self):
+        with self._get("/") as r:
+            body = r.read().decode()
+        enable = body.split("function toggleKnobHue(")[1].split("function knobHueApply(")[0]
+        self.assertNotIn("knobHueApply();", enable,
+                         "enabling must wait for the first knob turn")
+
+    def test_sampler_and_looper_are_wired(self):
+        with self._get("/") as r:
+            body = r.read().decode()
+        for needle in ('id="padgrid"', 'id="looper"', 'function buildSampler(',
+                       'function hitPad(', 'function assignPad(', 'function loopOp(',
+                       'function renderSampler(', 'function renderLooper(',
+                       'SMP_SLOTS=16'):
+            self.assertIn(needle, body, f"missing {needle}")
+
+    def test_sampler_and_looper_api_are_forwarded(self):
+        # The forwarding lives in Python, not in the page, so read the source.
+        import soluna_web
+        src = open(soluna_web.__file__, encoding="utf-8").read()
+        self.assertIn('elif cmd == "pad":', src)
+        self.assertIn('elif cmd == "loop":', src)
+        self.assertIn('"/mix/pad"', src)
+        self.assertIn('"/mix/loop"', src)
+
     def test_backoff_counts_speaker_outage(self):
         # A speaker outage returns 200 with online:false, so the old code reset
         # pollFail every tick and hammered the dead speaker every 2s.
@@ -267,6 +368,14 @@ class DashboardTest(unittest.TestCase):
         self.assertNotEqual(post({}), 403, "no Origin/Referer must be allowed")
         self.assertEqual(post({"Referer": "http://evil.example/x"}), 403,
                          "a foreign Referer must be rejected")
+
+    def test_crossfader_ignores_restored_form_value(self):
+        # Chrome restores range inputs on reload and fires `input`. If that
+        # counted as a gesture the mix would leave AUTO on every page load.
+        with self._get("/") as r:
+            body = r.read().decode()
+        self.assertIn("if(!draggingXf&&!xfKeyTouched)return;", body)
+        self.assertIn("xf.addEventListener('keydown',()=>{xfKeyTouched=true;})", body)
 
     def test_unknown_action_is_reported(self):
         req = urllib.request.Request(
