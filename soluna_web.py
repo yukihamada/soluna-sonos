@@ -1423,8 +1423,11 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
    mixer column in the middle, and a thin strip of branding along the top. */
 .flx4{padding:0;border-radius:18px;overflow:hidden;border:1px solid #23272e;
   /* Matte black, like the real unit: almost no specular sheen, just a faint
-     top-edge highlight so the slab reads as a physical object. */
+     top-edge highlight so the slab reads as a physical object. The 1px
+     repeating gradient is the moulded-plastic grain; at 1px it stays below
+     the noise floor of a screenshot but stops the slab reading as flat fill. */
   background:
+    repeating-linear-gradient(45deg,rgba(255,255,255,.012) 0 1px,rgba(0,0,0,.012) 1px 2px),
     radial-gradient(140% 70% at 50% -20%,rgba(255,255,255,.035),transparent 60%),
     #101215;
   display:flex;flex-direction:column;
@@ -1435,7 +1438,8 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
 .flx4-brand{display:flex;align-items:baseline;gap:9px;min-width:0}
 .flx4-logo{font-size:13px;font-weight:900;letter-spacing:3px;color:#d9dee7;
   text-shadow:0 1px 0 #000}
-.flx4-model{font-size:11px;font-weight:800;letter-spacing:2.4px;color:#8b93a3}
+.flx4-model{font-size:11px;font-weight:800;letter-spacing:2.4px;color:#8b93a3;
+  text-shadow:0 1px 0 rgba(0,0,0,.9),0 0 1px rgba(255,255,255,.07)}
 /* Real FLX4 geometry: deck A left, deck B right, mixer column between them.
    The second bank (C/D) takes the row underneath, shown only when selected. */
 .flx4-body{display:grid;grid-template-columns:1fr minmax(272px,28%) 1fr;
@@ -1495,7 +1499,8 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
   box-shadow:none}
 .deckcard.active{background:linear-gradient(180deg,rgba(255,255,255,.035),transparent 40%)}
 .dcHead{display:flex;align-items:center;justify-content:space-between}
-.dcName{font-size:11px;font-weight:900;letter-spacing:2.4px;color:#cfd6e4}
+.dcName{font-size:11px;font-weight:900;letter-spacing:2.4px;color:#cfd6e4;
+  text-shadow:0 1px 0 rgba(0,0,0,.9),0 0 1px rgba(255,255,255,.08)}
 .dcState{font-size:11px;color:var(--mut);font-weight:700}
 .deckcard.active .dcState{color:var(--ok)}
 .deckcard.active.onair .dcState{color:#0b0d12}
@@ -1631,7 +1636,14 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
   opacity:.9;box-shadow:inset 0 0 22px rgba(0,0,0,.9),inset 0 0 0 1px rgba(255,255,255,.07)}
 /* Outer ring with a position mark, so the jog reads as a spinning platter. */
 .platterRing{position:absolute;inset:4%;border-radius:50%;pointer-events:none;
-  box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
+  /* The hardware ring is a step, not a line: a lit top edge, a dark shoulder
+     and a second highlight one pixel in. A single 1px ring read as flat. */
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.22),
+    inset 0 2px 2px rgba(255,255,255,.06),
+    inset 0 -2px 3px rgba(0,0,0,.75),
+    inset 0 0 0 1px rgba(255,255,255,.10),
+    inset 0 0 0 3px rgba(0,0,0,.35)}
 .platterRing::before{content:"";position:absolute;inset:0;border-radius:50%;
   background:conic-gradient(from 0deg,rgba(255,255,255,.10),rgba(255,255,255,0) 25%,rgba(255,255,255,.10) 50%,rgba(255,255,255,0) 75%,rgba(255,255,255,.10))}
 .deckcard.active .platterRing::before{animation:spin 3.2s linear infinite}
@@ -1667,7 +1679,6 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
 .dcYt input:focus{border-color:var(--acc)}
 .dcYt button{flex:none;min-width:50px;min-height:44px;background:var(--card);border:1px solid var(--line);border-radius:10px;color:var(--fg);font-size:12px;font-weight:700;cursor:pointer}
 .dcYt button:active{background:linear-gradient(160deg,var(--acc),var(--acc2));border:none;color:#fff}
-.dcSecLbl{font-size:11px;font-weight:900;letter-spacing:1.8px;color:#8b93a3;margin:2px 0 0}
 .dcMore{display:flex;flex-direction:column;gap:5px;margin-top:2px}
 .dcMore>summary{min-height:44px;min-width:44px;display:flex;align-items:center;justify-content:center;gap:6px;
   list-style:none;cursor:pointer;border:1px solid var(--line);border-radius:10px;background:var(--card);
@@ -1700,8 +1711,11 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
   font-size:12px;font-weight:800;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;transition:.12s;
   -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:manipulation}
 .pad:active{transform:scale(.94)}
-.pad .padn{font-size:13px;font-weight:900}
-.pad .padt{font-size:11px;font-weight:700;letter-spacing:.3px;opacity:.9}
+/* Silk print on the pad is a condensed, tightly tracked bold — the system
+   sans at 13px/900 read as a web label, not ink on rubber. */
+.pad .padn{font-family:"Helvetica Neue Condensed","Arial Narrow",Impact,-apple-system,sans-serif;
+  font-size:14px;font-weight:900;letter-spacing:.4px;line-height:1}
+.pad .padt{font-size:11px;font-weight:800;letter-spacing:.3px;opacity:.92}
 .pad.set{background:#1f6f7a;border-color:#2b8b98;color:#eafcff}
 .pad.set .padt{color:#c9f2f8}
 .pad.hit{background:#37b6c6;border-color:#5ad2e0;color:#04141a;box-shadow:0 0 10px rgba(55,182,198,.45)}
@@ -1709,7 +1723,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
   linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,0) 55%),
   linear-gradient(180deg,#23272e,#14171c);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.06),inset 0 -2px 4px rgba(0,0,0,.6)}
-.pad.empty .padn{position:absolute;top:3px;left:6px;font-size:10px;opacity:.8}
+.pad.empty .padn{position:absolute;top:3px;left:6px;font-size:11px;opacity:.85}
 .pad.empty .padt{font-size:18px;line-height:1;font-weight:400;opacity:.95}
 
 /* crossfader */
@@ -1818,8 +1832,12 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
   min-width:0;white-space:nowrap}
 .mixHeadSub b{font-weight:800;color:#dfe5f0}
 .mixHeadSub i[hidden]{display:none}
-.mixHeadSub i{font-style:normal;font-size:11px;font-weight:800;letter-spacing:0;padding:2px 6px;border-radius:7px;
-  background:#3a2f14;color:#f0b45a;cursor:pointer;white-space:nowrap;flex:0 0 auto}
+.mixHeadSub i{font-style:normal;font-size:11px;font-weight:800;letter-spacing:0;padding:1px 6px;border-radius:7px;
+  /* A solid amber block competed with the live readouts. A tinted chip with a
+     hairline border keeps the warning colour without becoming the loudest
+     thing on the mixer. */
+  background:rgba(240,180,90,.13);border:1px solid rgba(240,180,90,.38);
+  color:#f0b45a;cursor:pointer;white-space:nowrap;flex:0 0 auto}
 .mixHeadSub .why{display:block;position:fixed;z-index:60;width:min(320px,calc(100vw - 24px));padding:10px 30px 10px 12px;box-shadow:0 10px 28px rgba(0,0,0,.55);
   border-radius:9px;background:#1b2027;border:1px solid #3a414c;color:#dfe5f0;font-size:11px;line-height:1.5;letter-spacing:0;font-weight:600}
 .mixHeadSub .why[hidden]{display:none}
@@ -1904,7 +1922,10 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
   transition:height .12s linear}
 .masterSec{position:relative;border:1px solid #23272e;border-radius:12px;padding:14px 4px 4px;background:#0b0d10}
 .secLabel{position:absolute;top:-7px;left:10px;padding:0 6px;background:#0d0f12;
-  font-size:9px;font-weight:900;letter-spacing:1.8px;color:#7f8798}
+  font-size:9px;font-weight:900;letter-spacing:1.8px;color:#7f8798;
+  /* Silkscreen sits *on* the panel: a 1px dark drop plus a hairline top
+     highlight is what reads as printed ink rather than flat text. */
+  text-shadow:0 1px 0 rgba(0,0,0,.9),0 0 1px rgba(255,255,255,.07)}
 .knobrow{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;padding:0 0 4px}
 /* Before a Sonos client is connected the controls are inert, but the printed
    scale around them is silk print, not a control: dimming the whole row to 55%
@@ -1922,7 +1943,10 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
 .knobrow.disabled .cval{opacity:.5}
 .knobchan{display:flex;flex-direction:column;align-items:center;gap:11px;background:transparent;border:none;border-radius:10px;padding:2px 2px 4px}
 .klabel{font-size:11px;letter-spacing:1.6px;color:#9aa3b4;font-weight:800;order:-1}
-.cval{width:100%;text-align:center;font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;color:#eef2f8;line-height:1.05;white-space:nowrap}
+.cval{width:100%;text-align:center;font-size:20px;font-weight:800;font-variant-numeric:tabular-nums;color:#eef2f8;line-height:1.05;white-space:nowrap;
+  /* The unit prints these values small under the dial; 22px read as a web
+     readout. 20px with tight tracking keeps them legible but closer to print. */
+  letter-spacing:-.4px}
 .cval small{display:block;margin-top:2px;font-size:11px;font-weight:600;color:#a3abb9;letter-spacing:.2px}
 .cval[data-sending]{color:var(--acc)}
 /* rotary knob */
