@@ -1677,7 +1677,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
   font-size:11px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:.3px;
   color:#8b93a3;line-height:16px}
 .dcTime .dcElapsed{color:#cfd6e4}
-.dcTime .dcTotal{color:#6d7583}
+.dcTime .dcTotal{color:#8a93a3}
 .dcTime .dcTimeSep{color:#4a515d;font-weight:700}
 .dcTime.live .dcElapsed{color:#f0a92a}
 .dcTime.live .dcTotal{display:none}
@@ -1702,7 +1702,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
 .dcMore[open]>summary{margin-bottom:6px;border-color:var(--acc)}
 .dcMore .pads,.dcMore .dcSrc,.dcMore .dcYt{margin-top:6px}
 .dcPadModes{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}
-.pmode{min-height:30px;border-radius:7px;border:1px solid #2c323d;background:#151920;color:#c3cad6;
+.pmode{min-height:32px;border-radius:7px;border:1px solid #2c323d;background:#151920;color:#c3cad6;
   font-size:10px;font-weight:900;letter-spacing:.4px;cursor:pointer;transition:.12s;padding:0 2px}
 .pmode.on{background:#232a35;color:#e8edf7;border-color:#3a424f;box-shadow:inset 0 1px 0 rgba(255,255,255,.08)}
 /* The selected mode stays lit on the unit whatever the source is; only the
@@ -1744,6 +1744,10 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
 .xflabels span:nth-child(2){color:#cfd6e4}
 .xfader{-webkit-appearance:none;appearance:none;width:100%;height:12px;border-radius:6px;outline:none;
   background:linear-gradient(90deg,var(--acc),#2a3550 50%,var(--acc2))}
+/* outline:none above removes the only focus cue a range input has by default.
+   Put a visible ring back for keyboard users without changing the mouse look. */
+.xfader:focus-visible,.chfader:focus-visible,.rknob:focus-visible{
+  outline:3px solid var(--acc);outline-offset:4px;border-radius:8px}
 .xfader::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:30px;height:30px;border-radius:50%;background:#fff;cursor:pointer;box-shadow:0 0 0 4px rgba(var(--g1),.25),0 3px 10px rgba(0,0,0,.7)}
 
 /* channel mixer */
@@ -2168,6 +2172,13 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
 /* misc */
 .err{color:var(--err);font-size:12px;min-height:0}
 .note{position:fixed;left:50%;transform:translateX(-50%);top:calc(10px + env(safe-area-inset-top));background:var(--warn);color:#241a00;font-size:12px;font-weight:700;padding:8px 16px;border-radius:20px;box-shadow:0 6px 20px rgba(0,0,0,.5);z-index:50;display:none;max-width:90vw;text-align:center}
+/* A deck can be playing (and the speaker PLAYING) while the master output is
+   silent, e.g. the crossfader sits on a stopped deck. The thin meter dimming
+   was the only cue, which is easy to miss from across a room. This banner
+   stays up until the sound is back. */
+.silence{position:fixed;left:50%;transform:translateX(-50%);top:calc(10px + env(safe-area-inset-top));background:#ffd24a;color:#241a00;font-size:13px;font-weight:800;padding:9px 18px;border-radius:20px;box-shadow:0 6px 20px rgba(0,0,0,.6);z-index:51;display:none;max-width:92vw;text-align:center;line-height:1.35}
+.silence.show{display:block}
+.silence b{font-weight:900}
 .note.show{display:block}
 
 /* text size */
@@ -2384,7 +2395,7 @@ html[data-size="lg"] .tab{font-size:12px}
   .knobrow{gap:2px}
   .mixer{padding:8px 6px 8px}
   .loadRow{grid-template-columns:1fr 24px 1fr}
-  .loadBtn{font-size:9px;min-height:30px}
+  .loadBtn{font-size:9px;min-height:32px}
   .loadKnob{width:22px;height:22px}
   /* The "未出力" badge overflowed the 200px mixer into deck B. Let the head
      wrap and drop the wide letter-spacing so it stays inside the column. */
@@ -2423,7 +2434,7 @@ html[data-size="lg"] .tab{font-size:12px}
   .cval small{display:block;font-size:8.5px;margin-top:1px;letter-spacing:0}
   .klabel{font-size:9px}
   .loadRow{grid-template-columns:1fr 26px 1fr;margin-bottom:0}
-  .loadBtn{min-height:28px;font-size:9px}
+  .loadBtn{min-height:32px;font-size:9px}
   .loadKnob{width:24px;height:24px}
   .mixer{gap:6px;padding:8px 6px 6px}
   .mixHead{font-size:10px}
@@ -2456,7 +2467,7 @@ html[data-size="lg"] .tab{font-size:12px}
   .chstrips{--flen:clamp(122px,15.5vh,150px)}
   .klabel{font-size:9px}
   .loadRow{grid-template-columns:1fr 28px 1fr}
-  .loadBtn{min-height:30px}
+  .loadBtn{min-height:32px}
   .loadKnob{width:26px;height:26px}
   .xfwrap{padding:4px 2px 0}
   .xfader-track{height:40px}
@@ -2867,6 +2878,7 @@ html[data-size="lg"] .tab{font-size:12px}
   <div class="err" id="err" role="alert" aria-live="assertive"></div>
 </div>
 <div class="note" id="note" role="status" aria-live="polite"></div>
+<div class="silence" id="silence" role="alert" aria-live="assertive"></div>
 <script>
 let st={online:false}, busy=false, timers={}, noteTimer=null, switchUntil=0;
 const METER_PEAK={A:0,B:0,C:0,D:0};
@@ -3443,11 +3455,12 @@ function renderMix(m){
     if(timeEl){
       const live=!(deck.duration>0);
       timeEl.classList.toggle('live',live&&!!deck.playing);
-      if(!live){
-        const elEl=document.getElementById('d'+d+'elapsed'), totEl=document.getElementById('d'+d+'total');
-        if(elEl)elEl.textContent=fmtCue(deck.pos||0);
-        if(totEl)totEl.textContent=fmtCue(deck.duration||0);
-      }
+      // A live stream has no total, but it does have an elapsed time: the
+      // mixer reports how long the source has been playing. Showing a frozen
+      // 0:00 next to the LIVE badge read as "this deck is not running".
+      const elEl=document.getElementById('d'+d+'elapsed'), totEl=document.getElementById('d'+d+'total');
+      if(elEl)elEl.textContent=fmtCue(deck.pos||0);
+      if(totEl&&!live)totEl.textContent=fmtCue(deck.duration||0);
     }
     const tEl2=document.getElementById('d'+d+'tempo'), tvEl=document.getElementById('d'+d+'tempov');
     if(tEl2&&document.activeElement!==tEl2&&typeof deck.tempo==='number'){
@@ -3547,6 +3560,12 @@ const PAD_COUNT=8;
 function fmtCue(sec){
   sec=Math.max(0,Math.round(sec));
   const m=Math.floor(sec/60),s=sec%60;
+  // A live stream can run for hours, so switch to h:mm:ss past the hour
+  // instead of printing 120:30.
+  if(m>=60){
+    const h=Math.floor(m/60);
+    return h+':'+String(m%60).padStart(2,'0')+':'+String(s).padStart(2,'0');
+  }
   return m+':'+String(s).padStart(2,'0');
 }
 // The master meter reads the same measured level the Hue sync uses. It is one
@@ -3565,7 +3584,59 @@ async function paintMasterMeter(){
     if(el.parentElement)el.parentElement.style.setProperty('--mstw',el.parentElement.offsetWidth+'px');
     const wrap=document.getElementById('mstMeter');
     if(wrap)wrap.classList.toggle('off',pct===0);
+    checkSilence(pct);
   }catch(e){}
+}
+// Which deck the crossfader is sending to, given the bank. Bank 0 is A/B
+// (A left, B right); bank 1 is C/D. The mixer only plays the side the
+// crossfader points at, so a stopped deck on that side means silence even
+// though the other deck is "playing".
+function audibleDeck(){
+  const m=st.mix||{};
+  const bank=Number(m.bank)||0;
+  const xf=typeof m.crossfader==='number'?m.crossfader:0.5;
+  if(Math.abs(xf-0.5)<0.06)return null;   // centred: both sides audible
+  const left=xf<0.5;
+  return bank===1?(left?'C':'D'):(left?'A':'B');
+}
+let silentSince=0, silenceShown='';
+function checkSilence(pct){
+  const box=document.getElementById('silence');
+  if(!box)return;
+  const m=st.mix||{};
+  const delivering=!!(m.clients>0);
+  const speakerOn=st.state==='PLAYING';
+  const anyPlaying=['A','B','C','D'].some(d=>m[d]&&m[d].playing);
+  const quiet=pct===0;
+  // Only complain when sound *should* be coming out: the speaker is playing a
+  // deck, and the master has measured nothing for a couple of seconds.
+  if(quiet&&delivering&&speakerOn&&anyPlaying){
+    if(!silentSince)silentSince=Date.now();
+    if(Date.now()-silentSince<2500)return;
+    const d=audibleDeck();
+    let msg;
+    // When the crossfader is centred both decks on the bank are audible, so
+    // look for a playing deck whose volume is turned down before falling back
+    // to the generic message.
+    const bankDecks=(Number(m.bank)===1)?['C','D']:['A','B'];
+    const muted=bankDecks.find(k=>m[k]&&m[k].playing&&!(m[k].volume>0.001));
+    if(d&&!(m[d]&&m[d].playing)){
+      msg='<b>無音です</b>：クロスフェーダーが停止中のデッキ'+d+'側にあります。再生するか中央へ戻してください';
+    }else if(d&&m[d]&&m[d].playing&&!(m[d].volume>0.001)){
+      msg='<b>無音です</b>：デッキ'+d+'の音量が0になっています。VOLUMEを上げてください';
+    }else if(muted){
+      msg='<b>無音です</b>：デッキ'+muted+'の音量が0になっています。VOLUMEを上げてください';
+    }else if(typeof m.master==='number'&&m.master<=0.001){
+      msg='<b>無音です</b>：MASTER音量が0になっています。MASTERを上げてください';
+    }else{
+      msg='<b>無音です</b>：Sonosは再生中ですが音が出ていません。デッキの再生状態を確認してください';
+    }
+    if(msg!==silenceShown){box.innerHTML=msg;silenceShown=msg;}
+    box.classList.add('show');
+  }else{
+    silentSince=0;
+    if(silenceShown){box.classList.remove('show');box.textContent='';silenceShown='';}
+  }
 }
 function renderPads(d,cues,live){
   const wrap=document.getElementById('pads'+d);
@@ -4342,14 +4413,44 @@ if(WAVE.A.el||WAVE.B.el||WAVE.C.el||WAVE.D.el){
   waveResizeAll();
   window.addEventListener('resize',waveResizeAll);
 }
-let pollTimer=null, pollFail=0;
+let pollTimer=null, pollFail=0, quietTimer=null;
 function schedulePoll(){
   clearTimeout(pollTimer);
   if(document.hidden)return;
   const delay=Math.min(2000*Math.pow(1.5,pollFail),15000);
   pollTimer=setTimeout(async()=>{await refresh();schedulePoll();},delay);
 }
-document.addEventListener('visibilitychange',()=>{if(document.hidden){clearTimeout(pollTimer);}else{pollFail=0;refresh().then(schedulePoll);}});
+// The full refresh pauses in a background tab, but "the room went silent" is
+// the one thing that must still be caught while the user looks at something
+// else. This is a cheap level-only poll that keeps the banner honest and
+// puts the warning in the tab title so it is visible from another tab.
+function scheduleQuietCheck(){
+  clearTimeout(quietTimer);
+  const delay=document.hidden?2000:Math.min(2000*Math.pow(1.5,pollFail),15000);
+  quietTimer=setTimeout(async()=>{
+    if(document.hidden){
+      try{
+        // Fetch the same status the foreground uses, so the banner can name
+        // the cause (master=0, a stopped deck, deck volume 0) instead of
+        // falling back to the generic message. /api/level alone has no mix
+        // state, which made every background warning generic.
+        const r=await fetch('/api/status');const s2=await r.json();st=s2;
+        const r2=await fetch('/api/level');const lv=await r2.json();
+        const l=Math.max(0,Math.min(1,typeof lv.level==='number'?lv.level:0));
+        checkSilence(Math.round(l*100));
+        const box=document.getElementById('silence');
+        const warn=box&&box.classList.contains('show');
+        document.title=warn?'⚠ 無音 · SOLUNA · Sonos':'SOLUNA · Sonos';
+      }catch(e){}
+    }
+    scheduleQuietCheck();
+  },delay);
+}
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden){clearTimeout(pollTimer);}
+  else{pollFail=0;document.title='SOLUNA · Sonos';refresh().then(schedulePoll);}
+});
+scheduleQuietCheck();
 document.addEventListener('keydown',e=>{
   if(e.target.tagName==='INPUT')return;
   if(e.code==='Space'){e.preventDefault();act('toggle');}
